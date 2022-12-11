@@ -3,34 +3,14 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"net/url"
 	"os"
 	"sync"
 )
 
-type EventType byte
 
-const (
-	_                     = iota
-	EventDelete EventType = iota
-	EventPut
-)
 
-type Event struct {
-	Sequence  uint64
-	EventType EventType
-	Key       string
-	Value     string
-}
 
-type TransactionLogger interface {
-	WriteDelete(key string)
-	WritePut(key, value string)
-	Err() <-chan error
-
-	ReadEvents() (<-chan Event, <-chan error)
-
-	Run()
-}
 
 type FileTransactionLogger struct {
 	events       chan<- Event
@@ -54,13 +34,18 @@ func (l *FileTransactionLogger) Err() <-chan error {
 	return l.errors
 }
 
+func (l *FileTransactionLogger) LastSequence() uint64{
+	return l.lastSequence
+}
+
+
 func NewFileTransactionLogger(filename string) (TransactionLogger, error) {
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0755)
 	if err != nil {
 		return nil, fmt.Errorf("cannot open transaction log file: %w", err)
 	}
 
-	return &FileTransactionLogger{file: file}, nil
+	return &FileTransactionLogger{file: file, wg: &sync.WaitGroup{}}, nil
 }
 
 func (l *FileTransactionLogger) Run() {
@@ -122,13 +107,13 @@ func (l *FileTransactionLogger) ReadEvents() (<-chan Event, <-chan error) {
 				outError <- fmt.Errorf("transaction numbers out of sequence")
 				return
 			}
-			// uv, err := url.QueryUnescape(e.Value)
-			// if err != nil {
-			// 	outError <- fmt.Errorf("vaalue decoding failure: %w", err)
-			// 	return
-			// }
+			uv, err := url.QueryUnescape(e.Value)
+			if err != nil {
+				outError <- fmt.Errorf("vaalue decoding failure: %w", err)
+				return
+			}
 
-			// e.Value = uv
+			e.Value = uv
 			l.lastSequence = e.Sequence
 
 			outEvent <- e
